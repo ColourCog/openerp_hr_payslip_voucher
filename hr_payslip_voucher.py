@@ -71,6 +71,16 @@ class hr_payslip(osv.osv):
         voucher_pool.unlink(cr, uid, voucher_ids, context=context)
         return super(hr_payslip, self).cancel_sheet(cr, uid, ids, context=context)
 
+    def _add_default_partner(self, cr, uid, ids, context):
+        move_line_obj = self.pool.get('account.move.line')
+        for slip_id in self.browse(cr, uid, ids, context=context):
+            default_partner_id = slip_id.employee_id.address_home_id.id
+            if slip_id.move_id:
+                for line in slip_id.move_id.line_id:
+                    if not line.partner_id:
+                        move_line_obj.write(cr, uid, [line.id], {'partner_id': default_partner_id})
+        return True
+                    
     def _create_voucher(self, cr, uid, line_ids, context):
         voucher_obj = self.pool.get('account.voucher')
         line_obj = self.pool.get('hr.payslip.line')
@@ -125,7 +135,8 @@ class hr_payslip(osv.osv):
                             _('Missing Bank!'), 
                             _("Rule '%s' requests a voucher to be created but there is no payment bank defined!" % line.salary_rule_id.name))
                     make_voucher_for_ids.append(line.id)
-                        
+        # fix missing partner_id for move lines
+        self._add_default_partner(cr, uid, ids,context=context)
         if make_voucher_for_ids:
             self._create_voucher(cr, uid, make_voucher_for_ids, context=context)
         return True
