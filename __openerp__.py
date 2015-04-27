@@ -1,6 +1,6 @@
 {
     "name" : "Employee Payslip Voucher",
-    "version" : "1.0", 
+    "version" : "1.1", 
     "category" : "Human Resources", 
     "sequence": 60,
     "complexity" : "normal", 
