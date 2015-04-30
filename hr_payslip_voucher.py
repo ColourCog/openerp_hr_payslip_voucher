@@ -5,7 +5,7 @@ from openerp import netsvc
 from datetime import date, datetime, timedelta
 
 from openerp.osv import fields, osv
-from openerp.tools import float_compare, float_is_zero
+from openerp import pooler
 from openerp.tools.translate import _
 
 class hr_payslip_line(osv.osv):
@@ -89,8 +89,8 @@ class hr_payslip(osv.osv):
                 'name': name,
                 'account_id': line.salary_rule_id.bank_id.journal_id.default_credit_account_id.id,
                 'amount': amt > 0.0 and amt or 0.0,
-                'date': timenow,
-                'date_due': timenow,
+                'date': context.get('voucher_date', timenow),
+                'date_due': context.get('voucher_date', timenow),
                 }
 
             vl = (0, 0, {
@@ -139,6 +139,41 @@ class hr_salary_rule(osv.osv):
         'bank_id': fields.many2one('res.partner.bank', 'Payment Bank',help=_("The Bank wich will be used to pay the voucher")),
     }
 hr_salary_rule()
+
+class hr_payslip_confirm(osv.osv_memory):
+    """
+    This wizard will confirm the all the selected draft invoices
+    """
+
+    _name = "hr.payslip.confirm"
+    _description = "Confirm the selected playslips"
+    
+    _columns = { 
+        'voucher_date': fields.date('Pay on the'),
+    } 
+    
+    _defaults = {
+        'voucher_date': time.strftime('%Y-%m-01'),
+    }
+
+    def confirm_slips(self, cr, uid, ids, context=None):
+        wf_service = netsvc.LocalService('workflow')
+        if context is None:
+            context = {}
+        pool_obj = pooler.get_pool(cr.dbname)
+        slip_obj = pool_obj.get('hr.payslip')
+        slips = slip_obj.read(cr, uid, context['active_ids'], ['state'], context=context)
+        
+        context.update({
+            'voucher_date': self.browse(cr,uid,ids)[0].voucher_date,
+            })
+        
+        for record in slips:
+            slip_obj.hr_verify_sheet(cr, uid, [record['id']],context=context)
+            slip_obj.process_sheet(cr, uid, [record['id']],context=context)
+        return {'type': 'ir.actions.act_window_close'}
+
+hr_payslip_confirm()
 
 
 # vim:expandtab:smartindent:tabstop=4:softtabstop=4:shiftwidth=4:
