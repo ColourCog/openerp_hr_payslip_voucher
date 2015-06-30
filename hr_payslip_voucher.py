@@ -2,19 +2,19 @@
 
 import time
 from openerp import netsvc
-from datetime import date, datetime, timedelta
 
 from openerp.osv import fields, osv
 from openerp import pooler
 from openerp.tools.translate import _
 
+
 class hr_payslip_line(osv.osv):
     _inherit = 'hr.payslip.line'
-    
+
     _columns = {
         'voucher_id': fields.many2one('account.voucher', 'Payment voucher', readonly=True),
     }
-    
+
 hr_payslip_line()
 
 
@@ -61,36 +61,49 @@ class hr_payslip(osv.osv):
                     if not line.partner_id:
                         move_line_obj.write(cr, uid, [line.id], {'partner_id': default_partner_id})
         return True
-                    
+
     def _create_voucher(self, cr, uid, line_ids, context):
+        if not context:
+            context = {}
         voucher_obj = self.pool.get('account.voucher')
         line_obj = self.pool.get('hr.payslip.line')
+        move_obj = self.pool.get('account.move')
         move_line_obj = self.pool.get('account.move.line')
-        timenow = time.strftime('%Y-%m-%d')
+        period_obj = self.pool.get('account.period')
         company_id = self.pool.get('res.users').browse(cr, uid, uid, context=context).company_id.id
 
         for line in line_obj.browse(cr, uid, line_ids, context=context):
             if not line.slip_id.employee_id.address_home_id:
                 raise osv.except_osv(
-                    _('Linked Partner Missing!'), 
+                    _('Linked Partner Missing!'),
                     _("Payslip voucher creation requires '%s' to have a valid Home Adress!" % line.slip_id.employee_id.name))
             name = _('Payslip of %s') % (line.slip_id.employee_id.name)
             credit_account_id = line.salary_rule_id.account_credit.id
             default_partner_id = line.slip_id.employee_id.address_home_id.id
             partner_id = line.salary_rule_id.register_id.partner_id and line.salary_rule_id.register_id.partner_id.id or default_partner_id
             amt = line.slip_id.credit_note and -line.total or line.total
-            move_line_id = move_line_obj.search(cr, uid, [('move_id','=',line.slip_id.move_id.id),
-                            ('name','=',line.name)],context=context)[0]
+            move_line_id = move_line_obj.search(
+                    cr,
+                    uid,
+                    [
+                        ('move_id','=', line.slip_id.move_id.id),
+                        ('name','=',line.name)],
+                    context=context)[0]
             voucher = {
                 'journal_id': line.salary_rule_id.bank_id.journal_id.id,
                 'company_id': company_id,
                 'partner_id': partner_id,
-                'type':'payment',
+                'type': 'payment',
                 'name': name,
                 'account_id': line.salary_rule_id.bank_id.journal_id.default_credit_account_id.id,
                 'amount': amt > 0.0 and amt or 0.0,
-                'date': context.get('voucher_date', timenow),
-                'date_due': context.get('voucher_date', timenow),
+                'date': context.get('voucher_date', line.slip_id.date_to),
+                'date_due': line.slip_id.date_to,
+                'period_id': period_obj.find(
+                    cr,
+                    uid,
+                    line.slip_id.date_to,
+                    context=context)[0]
                 }
 
             vl = (0, 0, {
@@ -116,12 +129,12 @@ class hr_payslip(osv.osv):
 
         for slip in self.browse(cr, uid, ids, context=context):
             for line in slip.details_by_salary_rule_category:
-                # Check if we must and can create a voucher for this 
+                # Check if we must and can create a voucher for this
                 # line and cache it for later
                 if line.salary_rule_id.make_voucher:
                     if not line.salary_rule_id.bank_id:
                         raise osv.except_osv(
-                            _('Missing Bank!'), 
+                            _('Missing Bank!'),
                             _("Rule '%s' requests a voucher to be created but there is no payment bank defined!" % line.salary_rule_id.name))
                     make_voucher_for_ids.append(line.id)
         # fix missing partner_id for move lines
@@ -129,7 +142,7 @@ class hr_payslip(osv.osv):
         if make_voucher_for_ids:
             self._create_voucher(cr, uid, make_voucher_for_ids, context=context)
         return True
-            
+
 hr_payslip()
 
 class hr_salary_rule(osv.osv):
@@ -147,27 +160,26 @@ class hr_payslip_confirm(osv.osv_memory):
 
     _name = "hr.payslip.confirm"
     _description = "Confirm the selected playslips"
-    
-    _columns = { 
+
+    _columns = {
         'voucher_date': fields.date('Pay on the'),
-    } 
-    
+    }
+
     _defaults = {
         'voucher_date': time.strftime('%Y-%m-01'),
     }
 
     def confirm_slips(self, cr, uid, ids, context=None):
-        wf_service = netsvc.LocalService('workflow')
         if context is None:
             context = {}
         pool_obj = pooler.get_pool(cr.dbname)
         slip_obj = pool_obj.get('hr.payslip')
         slips = slip_obj.read(cr, uid, context['active_ids'], ['state'], context=context)
-        
+
         context.update({
             'voucher_date': self.browse(cr,uid,ids)[0].voucher_date,
             })
-        
+
         for record in slips:
             slip_obj.hr_verify_sheet(cr, uid, [record['id']],context=context)
             slip_obj.process_sheet(cr, uid, [record['id']],context=context)
