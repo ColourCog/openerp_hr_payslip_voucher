@@ -73,6 +73,8 @@ class hr_payslip(osv.osv):
         company_id = self.pool.get('res.users').browse(cr, uid, uid, context=context).company_id.id
 
         for line in line_obj.browse(cr, uid, line_ids, context=context):
+            ctx = context.copy()
+            ctx.update({'account_period_prefer_normal': True})
             if not line.slip_id.employee_id.address_home_id:
                 raise osv.except_osv(
                     _('Linked Partner Missing!'),
@@ -88,7 +90,7 @@ class hr_payslip(osv.osv):
                     [
                         ('move_id','=', line.slip_id.move_id.id),
                         ('name','=',line.name)],
-                    context=context)[0]
+                    context=ctx)[0]
             voucher = {
                 'journal_id': line.salary_rule_id.bank_id.journal_id.id,
                 'company_id': company_id,
@@ -103,7 +105,7 @@ class hr_payslip(osv.osv):
                     cr,
                     uid,
                     line.slip_id.date_to,
-                    context=context)[0]
+                    context=ctx)[0]
                 }
 
             vl = (0, 0, {
@@ -115,8 +117,8 @@ class hr_payslip(osv.osv):
                 'type': amt > 0.0 and 'dr' or 'cr',
                 })
             voucher['line_ids'] = [vl]
-            voucher_id = voucher_obj.create(cr, uid, voucher, context=context)
-            move_id = voucher_obj.browse(cr, uid, voucher_id, context=context).move_id.id
+            voucher_id = voucher_obj.create(cr, uid, voucher, context=ctx)
+            move_id = voucher_obj.browse(cr, uid, voucher_id, context=ctx).move_id.id
             # post the journal entry if 'Skip 'Draft' State for Manual Entries' is checked
             if line.salary_rule_id.bank_id.journal_id.entry_posted:
                 move_obj.button_validate(cr, uid, [move_id], context)
